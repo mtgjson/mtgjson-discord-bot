@@ -1,13 +1,14 @@
 #!/usr/bin/python
 import discord
-import asyncio
+from discord.ext import commands
+import random
 import MySQLdb
 
 DATABASE_HOST = 'localhost'
 DATABASE_USER = 'user'
-DATABASE_PASSWD = 'passwd'
+USER_PASSWD = 'passwd'
 DATABASE_NAME = 'db'
-BOT_SECRET = 'token'
+BOT_SECRET_TOKEN = ''
 
 try:
    from config import *
@@ -16,32 +17,66 @@ except ImportError:
 
 db = MySQLdb.connect(host=DATABASE_HOST,    # your host, usually localhost
                      user=DATABASE_USER,         # your username
-                     passwd=DATABASE_PASSWD,  # your password
+                     passwd=USER_PASSWD,  # your password
                      db=DATABASE_NAME)        # name of the database
 
 cur = db.cursor()
 
-client = discord.Client()
 
-@client.event
-@asyncio.coroutine on_ready():
+bot = commands.Bot(command_prefix='?', description=description)
+
+@bot.event
+async def on_ready():
     print('Logged in as')
-    print(client.user.name)
-    print(client.user.id)
+    print(bot.user.name)
+    print(bot.user.id)
     print('------')
 
-@client.event
-@asyncio.coroutine on_message(message):
-    if message.content.startswith('!test'):
-        counter = 0
-        tmp = yield from client.send_message(message.channel, 'Calculating messages...')
-        async for log in client.logs_from(message.channel, limit=100):
-            if log.author == message.author:
-                counter += 1
+@bot.command()
+async def add(ctx, left: int, right: int):
+    """Adds two numbers together."""
+    await ctx.send(left + right)
 
-        yield from client.edit_message(tmp, 'You have {} messages.'.format(counter))
-    elif message.content.startswith('!sleep'):
-        yield from asyncio.sleep(5)
-        yield from client.send_message(message.channel, 'Done sleeping')
+@bot.command()
+async def roll(ctx, dice: str):
+    """Rolls a dice in NdN format."""
+    try:
+        rolls, limit = map(int, dice.split('d'))
+    except Exception:
+        await ctx.send('Format has to be in NdN!')
+        return
 
-client.run(BOT_SECRET)
+    result = ', '.join(str(random.randint(1, limit)) for r in range(rolls))
+    await ctx.send(result)
+
+@bot.command(description='For when you wanna settle the score some other way')
+async def choose(ctx, *choices: str):
+    """Chooses between multiple choices."""
+    await ctx.send(random.choice(choices))
+
+@bot.command()
+async def repeat(ctx, times: int, content='repeating...'):
+    """Repeats a message multiple times."""
+    for i in range(times):
+        await ctx.send(content)
+
+@bot.command()
+async def joined(ctx, member: discord.Member):
+    """Says when a member joined."""
+    await ctx.send('{0.name} joined in {0.joined_at}'.format(member))
+
+@bot.group()
+async def cool(ctx):
+    """Says if a user is cool.
+
+    In reality this just checks if a subcommand is being invoked.
+    """
+    if ctx.invoked_subcommand is None:
+        await ctx.send('No, {0.subcommand_passed} is not cool'.format(ctx))
+
+@cool.command(name='bot')
+async def _bot(ctx):
+    """Is the bot cool?"""
+    await ctx.send('Yes, the bot is cool.')
+
+bot.run(BOT_SECRET_TOKEN)
