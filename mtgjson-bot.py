@@ -5,6 +5,8 @@ import random
 import codecs
 import MySQLdb
 import MySQLdb.cursors
+import re
+from symbols import emoji
 
 DATABASE_HOST = 'localhost'
 DATABASE_USER = 'user'
@@ -44,6 +46,15 @@ async def on_message(message):
     def decode(text):
         return codecs.escape_decode(bytes(text, "utf-8"))[0].decode("utf-8")
     
+    def emojimize(text):
+        for key, value in emoji.items():
+            text = text.replace(key, value)
+            
+        return text
+    
+    def fixReminderText(text):
+        return re.sub(r'(\([^)]+\))', r'*\1*', text)
+    
     # Look up the card in the MySQL database
     def lookup(card):
         # For now, limiting 1, but in the future, we should distinguish cards
@@ -53,16 +64,16 @@ async def on_message(message):
         response = '**' + result['name'] + '**'
         
         if result['manaCost']:
-            response += '    ' + result['manaCost']
+            response += '    ' + emojimize(result['manaCost'])
         
         response += '\n'
         response += result['type'] + '\n'
         
         if result['text']:
-            response += decode(result['text']) + '\n'
+            response += fixReminderText(decode(emojimize(result['text']))) + '\n'
         
         if result['flavorText']:
-            response += decode(result['flavorText']) + '\n'
+            response += '*' + decode(result['flavorText']) + '*\n'
         
         if result['power'] or result['toughness']:
             response += '**' + result['power'] + '/' + result['toughness'] + '**' + '\n'
