@@ -46,21 +46,43 @@ async def on_message(message):
     def decode(text):
         return codecs.escape_decode(bytes(text, "utf-8"))[0].decode("utf-8")
     
+    # Replace symbols with emoji
     def emojimize(text):
         for key, value in emoji.items():
             text = text.replace(key, value)
-            
+        
         return text
     
+    # Italicize all reminder text
     def fixReminderText(text):
         return re.sub(r'(\([^)]+\))', r'*\1*', text)
     
+    # Search starting with
+    def startsWithSearch(term):
+        cur.execute("SELECT * FROM cards WHERE name LIKE '" + term + "%' LIMIT 1")
+        return cur.fetchone()
+    
+    # Search anywhere
+    def anywhereSearch(term):
+        cur.execute("SELECT * FROM cards WHERE name LIKE '%" + term + "%' LIMIT 1")
+        return cur.fetchone()
+    
+    # Search according to Soundex
+    def soundexSearch(term):
+        cur.execute("SELECT * FROM cards WHERE name SOUNDS LIKE '" + term + "' LIMIT 1")
+        return cur.fetchone()
+    
     # Look up the card in the MySQL database
     def lookup(card):
-        # For now, limiting 1, but in the future, we should distinguish cards
-        cur.execute("SELECT * FROM cards WHERE name like '" + card + "' LIMIT 1")
-        result = cur.fetchone()
+        # Iterate through searches to find the card
+        for query in [startsWithSearch, anywhereSearch, soundexSearch]:
+            result = query(card)
+            if result:
+                break
+        else:
+            return '**No cards found.**\nPlease revise your query.'
         
+        # Build the response with the card data
         response = '**' + result['name'] + '**'
         
         if result['manaCost']:
@@ -92,62 +114,3 @@ async def on_message(message):
         [await message.channel.send(lookup(command)) for command in commands]
 
 client.run(BOT_SECRET_TOKEN)
-
-#bot = commands.Bot(command_prefix='?', description='description')
-#
-#
-#@bot.event
-#async def on_ready():
-#    print('Logged in as')
-#    print(bot.user.name)
-#    print(bot.user.id)
-#    print('------')
-#
-#@bot.command()
-#async def add(ctx, left: int, right: int):
-#    """Adds two numbers together."""
-#    await ctx.send(left + right)
-#
-#@bot.command()
-#async def roll(ctx, dice: str):
-#    """Rolls a dice in NdN format."""
-#    try:
-#        rolls, limit = map(int, dice.split('d'))
-#    except Exception:
-#        await ctx.send('Format has to be in NdN!')
-#        return
-#
-#    result = ', '.join(str(random.randint(1, limit)) for r in range(rolls))
-#    await ctx.send(result)
-#
-#@bot.command(description='For when you wanna settle the score some other way')
-#async def choose(ctx, *choices: str):
-#    """Chooses between multiple choices."""
-#    await ctx.send(random.choice(choices))
-#
-#@bot.command()
-#async def repeat(ctx, times: int, content='repeating...'):
-#    """Repeats a message multiple times."""
-#    for i in range(times):
-#        await ctx.send(content)
-#
-#@bot.command()
-#async def joined(ctx, member: discord.Member):
-#    """Says when a member joined."""
-#    await ctx.send('{0.name} joined in {0.joined_at}'.format(member))
-#
-#@bot.group()
-#async def cool(ctx):
-#    """Says if a user is cool.
-#
-#    In reality this just checks if a subcommand is being invoked.
-#    """
-#    if ctx.invoked_subcommand is None:
-#        await ctx.send('No, {0.subcommand_passed} is not cool'.format(ctx))
-#
-#@cool.command(name='bot')
-#async def _bot(ctx):
-#    """Is the bot cool?"""
-#    await ctx.send('Yes, the bot is cool.')
-#
-#bot.run(BOT_SECRET_TOKEN)
