@@ -162,8 +162,9 @@ async def on_message(message):
             retrievedCard = getCard(db.escape_string(command).decode())
             
             if retrievedCard:
-                query.append(retrievedCard['name'])
-                await message.channel.send(formatCard(retrievedCard))
+                if (retrievedCard['name'] not in query):
+                    query.append(retrievedCard['name'])
+                    await message.channel.send(formatCard(retrievedCard))
             else:
                 await message.channel.send('**No cards found.**\nPlease revise your query.')
                 
