@@ -105,7 +105,7 @@ async def on_message(message):
     
     def getScryfallId(card):
         cur.execute("SELECT `scryfallId` FROM cards WHERE multiverseId > 0 and name LIKE '{0}' ORDER BY multiverseId DESC LIMIT 1".format(db.escape_string(card).decode()))
-        return cur.fetchone()
+        return cur.fetchone()['scryfallId']
     
     def removePunctuation(text):
         return re.sub('['+string.punctuation+']', '', text)
