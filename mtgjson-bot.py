@@ -6,6 +6,7 @@ import codecs
 import MySQLdb
 import MySQLdb.cursors
 import re
+import string
 from symbols import emoji
 
 DATABASE_HOST = 'localhost'
@@ -25,6 +26,8 @@ db = MySQLdb.connect(host=DATABASE_HOST,  # your host, usually localhost
                      user=DATABASE_USER,  # your username
                      passwd=USER_PASSWD,  # your password
                      db=DATABASE_NAME,    # name of the database
+                     charset='utf8',
+                     use_unicode=True,
                      cursorclass=MySQLdb.cursors.DictCursor)        
 
 cur = db.cursor()
@@ -35,6 +38,8 @@ client = discord.Client()
 @client.event
 async def on_ready():
     print('We have logged in as {0.user}'.format(client))
+    for g in client.guilds:
+        print(g.name)
 
 @client.event
 async def on_message(message):
@@ -45,6 +50,9 @@ async def on_message(message):
     # Decode newlines and other unusual characters
     def decode(text):
         return codecs.escape_decode(bytes(text, "utf-8"))[0].decode("utf-8")
+    
+    def encode(text):
+        return codecs.escape_encode(bytes(text, "utf-8"))[0]
     
     # Replace symbols with emoji
     def emojimize(text):
@@ -58,52 +66,81 @@ async def on_message(message):
         return re.sub(r'(\([^)]+\))', r'*\1*', text)
     
     # Search starting with
+    def stdSearch(term):
+        cur.execute("SELECT * FROM cards WHERE multiverseId > 0 and name LIKE '{0}' ORDER BY multiverseId ASC LIMIT 1000".format(term))
+        return cur.fetchall()
+    
     def startsWithSearch(term):
-        cur.execute("SELECT * FROM cards WHERE name LIKE '" + term + "%' LIMIT 1")
-        return cur.fetchone()
+        cur.execute("SELECT * FROM cards WHERE multiverseId > 0 and name LIKE '{0}%' ORDER BY multiverseId ASC LIMIT 100".format(term))
+        return cur.fetchall()
     
     # Search anywhere
     def anywhereSearch(term):
-        cur.execute("SELECT * FROM cards WHERE name LIKE '%" + term + "%' LIMIT 1")
-        return cur.fetchone()
+        cur.execute("SELECT * FROM cards WHERE multiverseId > 0 and name LIKE '%{0}%' ORDER BY multiverseId ASC LIMIT 100".format(term))
+        return cur.fetchall()
     
     # Search according to Soundex
     def soundexSearch(term):
-        cur.execute("SELECT * FROM cards WHERE name SOUNDS LIKE '" + term + "' LIMIT 1")
-        return cur.fetchone()
-    
+        cur.execute("SELECT * FROM cards WHERE multiverseId > 0 and name SOUNDS LIKE '{0}' ORDER BY multiverseId ASC LIMIT 100".format(term))
+        return cur.fetchall()
+        
     # Look up the card in the MySQL database
-    def lookup(card):
+    def getCard(card):
         # Iterate through searches to find the card
-        for query in [startsWithSearch, anywhereSearch, soundexSearch]:
+        for query in [stdSearch, startsWithSearch, anywhereSearch, soundexSearch]:
             result = query(card)
             if result:
-                break
-        else:
-            return '**No cards found.**\nPlease revise your query.'
+                printInfo = []
+                lastrow = ''
         
+                for row in result:
+                    if lastrow != row['setCode']:
+                        printInfo.append(row['setCode'] + ' ' + row['rarity'].upper()[0])
+                        lastrow = row['setCode']
+        
+                result[0]['printings'] = ', '.join(printInfo)
+                return result[0]
+            
+        return result
+    
+    def getSetCodeAndNumber(card):
+        cur.execute("SELECT `setCode`, `number` FROM cards WHERE multiverseId > 0 and name LIKE '{0}' ORDER BY multiverseId DESC LIMIT 1".format(db.escape_string(card).decode()))
+        return cur.fetchone()
+    
+    def removePunctuation(text):
+        return re.sub('['+string.punctuation+']', '', text)
+        
+    def formatCard(card):
         # Build the response with the card data
-        response = '**' + result['name'] + '**'
+        response = '**' + card['name'] + '**'
         
-        if result['manaCost']:
-            response += '    ' + emojimize(result['manaCost'])
+        if card['manaCost']:
+            response += '    ' + emojimize(card['manaCost'])
         
         response += '\n'
-        response += result['type'] + '\n'
+        response += card['type'] + '\n'
         
-        if result['text']:
-            response += fixReminderText(decode(emojimize(result['text']))) + '\n'
+        if card['text']:
+            response += fixReminderText(decode(emojimize(card['text']))) + '\n'
         
-        if result['flavorText']:
-            response += '*' + decode(result['flavorText']) + '*\n'
+        if card['flavorText']:
+            response += '*' + decode(card['flavorText']) + '*\n'
         
-        if result['power'] or result['toughness']:
-            response += '**' + result['power'] + '/' + result['toughness'] + '**' + '\n'
+        if card['power'] or card['toughness']:
+            response += '**' + card['power'] + '/' + card['toughness'] + '**' + '\n'
         
-        if result['loyalty']:
-            response += '**' + result['loyalty'] + '**\n'
+        if card['loyalty']:
+            response += '**' + card['loyalty'] + '**\n'
+        
+        if card['printings']:
+            response += '*' + card['printings'] + '*\n'
         
         return response
+    
+    def writedown(commands):
+        # Record found cards into database
+        cur.execute("""INSERT INTO queries (user, channel, query) VALUES ({0}, {1}, '{2}')""".format(message.author.id, message.channel.id, db.escape_string('|'.join(commands)).decode()))
+        db.commit()
         
     # Get commands from messages, splitting on the defined delimiter
     # Always drop the first element
@@ -111,6 +148,41 @@ async def on_message(message):
     commands.pop(0)
     
     if (commands):
-        [await message.channel.send(lookup(command)) for command in commands]
+        query = []
+        for command in commands:
+            # advancedCommand = re.search(r"([tos]):(\S+)", command)
+            # if advancedCommand:
+            #     getAdvancedCard()
+            
+            # Strip punctuation
+            retrievedCard = getCard(db.escape_string(command).decode())
+            
+            if retrievedCard:
+                query.append(retrievedCard['name'])
+                await message.channel.send(formatCard(retrievedCard))
+            else:
+                await message.channel.send('**No cards found.**\nPlease revise your query.')
+                
+        if (len(query)):
+            writedown(query)
 
+    if (message.content.find('!image') >= 0):
+        # Display image for card for last query in this channel
+        cur.execute("""SELECT * FROM queries WHERE channel = {0} ORDER BY id DESC LIMIT 1""".format(message.channel.id))
+        result = cur.fetchone()
+        
+        if (result == None):
+            return
+        
+        resultList = result['query'].split('|')
+        
+        response = []
+        
+        # Find the image by the set and card number
+        for item in resultList:
+            cardInfo = getSetCodeAndNumber(item)
+            response.append('https://img.scryfall.com/cards/normal/en/' + cardInfo['setCode'].lower() + '/' + cardInfo['number'] + '.jpg')
+        
+        await message.channel.send('\n'.join(response))
+        
 client.run(BOT_SECRET_TOKEN)
