@@ -103,8 +103,8 @@ async def on_message(message):
             
         return result
     
-    def getSetCodeAndNumber(card):
-        cur.execute("SELECT `setCode`, `number` FROM cards WHERE multiverseId > 0 and name LIKE '{0}' ORDER BY multiverseId DESC LIMIT 1".format(db.escape_string(card).decode()))
+    def getScryfallId(card):
+        cur.execute("SELECT `scryfallId` FROM cards WHERE multiverseId > 0 and name LIKE '{0}' ORDER BY multiverseId DESC LIMIT 1".format(db.escape_string(card).decode()))
         return cur.fetchone()
     
     def removePunctuation(text):
@@ -180,8 +180,7 @@ async def on_message(message):
         
         # Find the image by the set and card number
         for item in resultList:
-            cardInfo = getSetCodeAndNumber(item)
-            response.append('https://img.scryfall.com/cards/normal/en/' + cardInfo['setCode'].lower() + '/' + cardInfo['number'] + '.jpg')
+            response.append('https://api.scryfall.com/cards/' + getScryfallId(item) + '?format=image')
         
         await message.channel.send('\n'.join(response))
         
