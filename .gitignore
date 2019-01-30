@@ -2,3 +2,5 @@ config.py
 tamiyo.js
 *.pyc
 symbols
+.DS_Store
+tamiyo.py
