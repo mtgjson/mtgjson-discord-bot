@@ -149,6 +149,10 @@ async def on_message(message):
     
     if (commands):
         query = []
+        
+        # No more than 5 cards, sorry
+        del commands[5:]
+        
         for command in commands:
             # advancedCommand = re.search(r"([tos]):(\S+)", command)
             # if advancedCommand:
