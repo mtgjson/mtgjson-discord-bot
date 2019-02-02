@@ -94,7 +94,7 @@ async def on_message(message):
                 lastrow = ''
         
                 for row in result:
-                    if lastrow != row['setCode']:
+                    if ((lastrow != row['setCode']) and (result[0]['name'] == row['name'])):
                         printInfo.append(row['setCode'] + ' ' + row['rarity'].upper()[0])
                         lastrow = row['setCode']
         
