@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 import discord
 from discord.ext import commands
 import random
@@ -127,7 +127,7 @@ async def on_message(message):
             response += '*' + decode(card['flavorText']) + '*\n'
         
         if card['power'] or card['toughness']:
-            response += '**' + card['power'] + '/' + card['toughness'] + '**' + '\n'
+            response += '**' + decode(card['power']) + '/' + decode(card['toughness']) + '**' + '\n'
         
         if card['loyalty']:
             response += '**' + card['loyalty'] + '**\n'
