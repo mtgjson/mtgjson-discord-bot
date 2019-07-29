@@ -7,7 +7,11 @@ import MySQLdb
 import MySQLdb.cursors
 import re
 import string
+import math
 from symbols import emoji
+import Levenshtein
+import json
+import logging
 
 DATABASE_HOST = 'localhost'
 DATABASE_USER = 'user'
@@ -16,6 +20,8 @@ DATABASE_NAME = 'db'
 BOT_SECRET_TOKEN = ''
 
 DELIMITER = ('<<', '>>')
+
+LEVENSHTEIN = 'DELIMITER $$ DROP FUNCTION IF EXISTS LEVENSHTEIN $$ CREATE FUNCTION LEVENSHTEIN(s1 VARCHAR(255) CHARACTER SET utf8, s2 VARCHAR(255) CHARACTER SET utf8) RETURNS INT DETERMINISTIC BEGIN DECLARE s1_len, s2_len, i, j, c, c_temp, cost INT; DECLARE s1_char CHAR CHARACTER SET utf8; -- max strlen=255 for this function DECLARE cv0, cv1 VARBINARY(256); SET s1_len = CHAR_LENGTH(s1), s2_len = CHAR_LENGTH(s2), cv1 = 0x00, j = 1, i = 1, c = 0; IF (s1 = s2) THEN RETURN (0); ELSEIF (s1_len = 0) THEN RETURN (s2_len); ELSEIF (s2_len = 0) THEN RETURN (s1_len); END IF; WHILE (j <= s2_len) DO SET cv1 = CONCAT(cv1, CHAR(j)), j = j + 1; END WHILE; WHILE (i <= s1_len) DO SET s1_char = SUBSTRING(s1, i, 1), c = i, cv0 = CHAR(i), j = 1; WHILE (j <= s2_len) DO SET c = c + 1, cost = IF(s1_char = SUBSTRING(s2, j, 1), 0, 1); SET c_temp = ORD(SUBSTRING(cv1, j, 1)) + cost; IF (c > c_temp) THEN SET c = c_temp; END IF; SET c_temp = ORD(SUBSTRING(cv1, j+1, 1)) + 1; IF (c > c_temp) THEN SET c = c_temp; END IF; SET cv0 = CONCAT(cv0, CHAR(c)), j = j + 1; END WHILE; SET cv1 = cv0, i = i + 1; END WHILE; RETURN (c); END $$ DELIMITER ; '
 
 try:
    from config import *
@@ -44,8 +50,14 @@ async def on_ready():
 @client.event
 async def on_message(message):
     # Ignore message if this bot sent the message
-    if message.author == client.user:
+    if ((message.author == client.user) or (message.author.bot)):
         return
+
+    #if message.author.id == 206966878365679616:
+        #match = re.search(r"^\!voice\s+(\d+)\s+(.+\Z)", message.content)
+        #if match:
+        #    await client.send_message(client.get_channel(match.group(1)), match.group(2))
+        #await client.send_message(client.get_channel(279861790194532353), 'Test')
     
     # Decode newlines and other unusual characters
     def decode(text):
@@ -83,6 +95,37 @@ async def on_message(message):
     def soundexSearch(term):
         cur.execute("SELECT * FROM cards WHERE multiverseId > 0 and name SOUNDS LIKE '{0}' ORDER BY multiverseId ASC LIMIT 100".format(term))
         return cur.fetchall()
+    
+    def levenshteinSearch(term):
+        termRange = math.ceil(len(term) / 4) + 1
+        termFloor = len(term) - termRange
+        termCeil = len(term) + termRange
+        
+        cur.execute("SELECT name FROM cards WHERE multiverseId > 0 and CHAR_LENGTH(name) >= '{0}' and CHAR_LENGTH(name) <= '{1}' ORDER BY multiverseId DESC LIMIT 100".format(termFloor, termCeil))
+        cardsToCheck = cur.fetchall()
+        bestMatch = 0.0
+        matchedCard = None
+        
+        logging.info(term)
+        
+        for card in cardsToCheck:
+            logging.info(card['name'])
+            
+            ratio = Levenshtein.ratio(term, card['name'])
+
+            logging.info(ratio)
+
+            if (ratio > bestMatch):
+                logging.info(card['name'] + ': ' + ratio)
+                bestMatch = ratio
+                matchedCard = card['name']
+
+        logging.info(matchedCard + ': ' + bestMatch)
+        
+        if (bestMatch >= 0.7):
+            return stdSearch(matchedCard)
+        else:
+            return stdSearch(term)
         
     # Look up the card in the MySQL database
     def getCard(card):
@@ -103,6 +146,10 @@ async def on_message(message):
             
         return result
     
+    def getMultiverseId(card):
+        cur.execute("SELECT `multiverseId` FROM cards WHERE multiverseId > 0 and name LIKE '{0}' ORDER BY multiverseId DESC LIMIT 1".format(db.escape_string(card).decode()))
+        return cur.fetchone()['multiverseId']
+
     def getScryfallId(card):
         cur.execute("SELECT `scryfallId` FROM cards WHERE multiverseId > 0 and name LIKE '{0}' ORDER BY multiverseId DESC LIMIT 1".format(db.escape_string(card).decode()))
         return cur.fetchone()['scryfallId']
@@ -121,19 +168,22 @@ async def on_message(message):
         response += card['type'] + '\n'
         
         if card['text']:
-            response += fixReminderText(decode(emojimize(card['text']))) + '\n'
+            response += fixReminderText(decode(emojimize(card['text'].replace('*', '★')))) + '\n'
         
         if card['flavorText']:
             response += '*' + decode(card['flavorText']) + '*\n'
         
         if card['power'] or card['toughness']:
-            response += '**' + decode(card['power']) + '/' + decode(card['toughness']) + '**' + '\n'
+            response += '**' + decode(card['power'].replace('*', '★')) + '/' + decode(card['toughness'].replace('*', '★')) + '**' + '\n'
         
         if card['loyalty']:
             response += '**' + card['loyalty'] + '**\n'
         
         if card['printings']:
             response += '*' + card['printings'] + '*\n'
+        
+        if (getMultiverseId(card['name']) >= 9999999):
+            response = '||' + response + '||'
         
         return response
     
@@ -160,6 +210,7 @@ async def on_message(message):
             
             # Strip punctuation
             retrievedCard = getCard(db.escape_string(command).decode())
+            retrievedCard['name'] = retrievedCard['name'].replace("’", "'")
             
             if retrievedCard:
                 if (retrievedCard['name'] not in query):
@@ -170,6 +221,31 @@ async def on_message(message):
                 
         if (len(query)):
             writedown(query)
+
+    if (message.content.find('!price') >= 0):
+        # Get the card price
+        cur.execute("""SELECT * FROM queries WHERE channel = {0} ORDER BY id DESC LIMIT 1""".format(message.channel.id))
+        result = cur.fetchone()
+
+        if (result == None):
+            return
+
+        resultList = result['query'].split('|')
+        
+        response = []
+        
+        # Find the image by the set and card number
+        for item in resultList:
+            price = json.loads(getCard(item)['prices'])
+            purchase = json.loads(getCard(item)['purchaseUrls'])
+            
+            if (price['paper']['2019-05-26']):
+                response.append(getCard(item)['name'] + ' *' + getCard(item)['setCode'] + ' ' + getCard(item)['rarity'] + '* $' + price['paper']['2019-05-26'])
+                if (purchase['tcgplayer']):
+                    response[-1] += '\n TCGPlayer: <' + purchase['tcgplayer'] +'>'
+
+        await message.channel.send('\n'.join(response))
+
 
     if (message.content.find('!image') >= 0):
         # Display image for card for last query in this channel
@@ -185,7 +261,16 @@ async def on_message(message):
         
         # Find the image by the set and card number
         for item in resultList:
-            response.append('https://api.scryfall.com/cards/' + getScryfallId(item) + '?format=image')
+            # Check if it’s a back side of a card
+            side = ''
+            if (getCard(item)['side'] == 'b'):
+                side = '&face=back'
+            
+            # SPOILERS!
+            if (getMultiverseId(item) >= 9999998):
+                response.append('||https://api.scryfall.com/cards/' + getScryfallId(item) + '?format=image' + side + '||')
+            else:
+                response.append('https://api.scryfall.com/cards/' + getScryfallId(item) + '?format=image' + side)
         
         await message.channel.send('\n'.join(response))
         
