@@ -18,6 +18,7 @@ DATABASE_USER = 'user'
 USER_PASSWD = 'passwd'
 DATABASE_NAME = 'db'
 BOT_SECRET_TOKEN = ''
+CONFIG_PATH = 'debug.log'
 
 DELIMITER = ('<<', '>>')
 
@@ -100,29 +101,20 @@ async def on_message(message):
         termRange = math.ceil(len(term) / 4) + 1
         termFloor = len(term) - termRange
         termCeil = len(term) + termRange
-        
-        cur.execute("SELECT name FROM cards WHERE multiverseId > 0 and CHAR_LENGTH(name) >= '{0}' and CHAR_LENGTH(name) <= '{1}' ORDER BY multiverseId DESC LIMIT 100".format(termFloor, termCeil))
+                
+        cur.execute("SELECT name FROM cards WHERE multiverseId > 0 and CHAR_LENGTH(name) >= '{0}' and CHAR_LENGTH(name) <= '{1}' ORDER BY multiverseId DESC".format(termFloor, termCeil))
         cardsToCheck = cur.fetchall()
         bestMatch = 0.0
         matchedCard = None
-        
-        logging.info(term)
-        
-        for card in cardsToCheck:
-            logging.info(card['name'])
-            
+                
+        for card in cardsToCheck:            
             ratio = Levenshtein.ratio(term, card['name'])
 
-            logging.info(ratio)
-
-            if (ratio > bestMatch):
-                logging.info(card['name'] + ': ' + ratio)
+            if (ratio > bestMatch):                    
                 bestMatch = ratio
                 matchedCard = card['name']
-
-        logging.info(matchedCard + ': ' + bestMatch)
         
-        if (bestMatch >= 0.7):
+        if (bestMatch >= .65):
             return stdSearch(matchedCard)
         else:
             return stdSearch(term)
@@ -130,7 +122,7 @@ async def on_message(message):
     # Look up the card in the MySQL database
     def getCard(card):
         # Iterate through searches to find the card
-        for query in [stdSearch, startsWithSearch, anywhereSearch, soundexSearch]:
+        for query in [stdSearch, startsWithSearch, anywhereSearch, soundexSearch, levenshteinSearch]:
             result = query(card)
             if result:
                 printInfo = []
@@ -210,7 +202,7 @@ async def on_message(message):
             
             # Strip punctuation
             retrievedCard = getCard(db.escape_string(command).decode())
-            retrievedCard['name'] = retrievedCard['name'].replace("’", "'")
+            #retrievedCard['name'] = retrievedCard['name'].replace("’", "'")
             
             if retrievedCard:
                 if (retrievedCard['name'] not in query):
