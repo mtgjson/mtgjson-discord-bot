@@ -98,7 +98,7 @@ async def on_message(message):
         return cur.fetchall()
     
     def levenshteinSearch(term):
-        termRange = math.ceil(len(term) / 2) + 1
+        termRange = math.ceil(len(term) / 3) + 1
         termFloor = len(term) - termRange
         termCeil = len(term) + termRange
                 
